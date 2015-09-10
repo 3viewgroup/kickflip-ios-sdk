@@ -17,6 +17,8 @@
  */
 @interface KFAPIClient : AFHTTPSessionManager
 
+@property BOOL isUDID;
+
 /**
  *  Singleton for easy access around your project
  *
@@ -88,6 +90,10 @@
  *
  *  @param endpointCallback Called when request completes for new stream or error
  */
+
+
+- (void) startStreamWithParameters:(NSDictionary*)parameters callbackBlock:(void (^)(KFStream *, NSError *))endpointCallback;
+
 - (void) startNewStream:(void (^)(KFStream *newStream, NSError *error))endpointCallback;
 
 /**
@@ -161,5 +167,14 @@
  *  @see KFPaginationInfo
  */
 - (void) requestAllStreamsWithPageNumber:(NSUInteger)pageNumber itemsPerPage:(NSUInteger)itemsPerPage callbackBlock:(void (^)(NSArray *streams, KFPaginationInfo *paginationInfo, NSError *error))callbackBlock;
+
+
+- (void) deleteStream:(NSString *)streamId callbackBlock:(void (^)(KFStream* updatedStream, NSError *))callbackBlock;
+
+- (void) requestStreamInfo:(NSString *)streamId callbackBlock:(void (^)(KFStream* streamInfo, NSError *))callbackBlock;
+
+- (void)updateExtraInfoStream:(NSDictionary *)extraInfo streamID:(NSString*)streamID callbackBlock:(void (^)(KFStream* updatedStream, NSError *))callbackBlock;
+
+- (void) betterPostPath:(NSString*)path parameters:(NSDictionary*)parameters  user:(KFUser*)user callbackBlock:(void (^)(NSDictionary *responseDictionary, NSError *error))callbackBlock;
 
 @end
