@@ -24,20 +24,15 @@
 @property (nonatomic) double minBitrate;
 @property (nonatomic) BOOL hasScreenshot;
 @property (nonatomic, strong) CLLocationManager *locationManager;
-@property (nonatomic) BOOL isUsingFrontFacingCamera;
-@property (nonatomic) AVCaptureDeviceInput* videoInput;
-
 @end
 
 @implementation KFRecorder
 
 - (id) init {
     if (self = [super init]) {
-        
         _minBitrate = 300 * 1000;
         [self setupSession];
         [self setupEncoders];
-        
     }
     return self;
 }
@@ -61,13 +56,13 @@
     self.hlsWriter = [[KFHLSWriter alloc] initWithDirectoryPath:hlsDirectoryPath];
     [_hlsWriter addVideoStreamWithWidth:self.videoWidth height:self.videoHeight];
     [_hlsWriter addAudioStreamWithSampleRate:self.audioSampleRate];
-    
+
 }
 
 - (void) setupEncoders {
     self.audioSampleRate = 44100;
-    self.videoHeight = 1280;
-    self.videoWidth = 720;
+    self.videoHeight = 720;
+    self.videoWidth = 1280;
     int audioBitrate = 64 * 1000; // 64 Kbps
     int maxBitrate = [Kickflip maxBitrate];
     int videoBitrate = maxBitrate - audioBitrate;
@@ -80,7 +75,7 @@
 }
 
 - (void) setupAudioCapture {
-    
+
     // create capture device with video input
     
     /*
@@ -107,18 +102,17 @@
 
 - (void) setupVideoCapture {
     NSError *error = nil;
-    AVCaptureDevice* videoDevice = [self deviceWithMediaType:AVMediaTypeVideo preferringPosition:AVCaptureDevicePositionFront];
-    _videoInput = [AVCaptureDeviceInput deviceInputWithDevice:videoDevice error:&error];
+    AVCaptureDevice* videoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    AVCaptureDeviceInput* videoInput = [AVCaptureDeviceInput deviceInputWithDevice:videoDevice error:&error];
     if (error) {
         NSLog(@"Error getting video input device: %@", error.description);
     }
-    if ([_session canAddInput:_videoInput]) {
-        [_session addInput:_videoInput];
+    if ([_session canAddInput:videoInput]) {
+        [_session addInput:videoInput];
     }
     
     // create an output for YUV output with self as delegate
     _videoQueue = dispatch_queue_create("Video Capture Queue", DISPATCH_QUEUE_SERIAL);
-    
     _videoOutput = [[AVCaptureVideoDataOutput alloc] init];
     [_videoOutput setSampleBufferDelegate:self queue:_videoQueue];
     NSDictionary *captureSettings = @{(NSString*)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
@@ -128,8 +122,6 @@
         [_session addOutput:_videoOutput];
     }
     _videoConnection = [_videoOutput connectionWithMediaType:AVMediaTypeVideo];
-    [_videoConnection setVideoOrientation:AVCaptureVideoOrientationPortrait];
-    
 }
 
 #pragma mark KFEncoderDelegate method
@@ -208,18 +200,15 @@
     _session = [[AVCaptureSession alloc] init];
     [self setupVideoCapture];
     [self setupAudioCapture];
-    
+
     // start capture and a preview layer
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [_session startRunning];
-        _previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_session];
-        _previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    });
-    
+    [_session startRunning];
+
+    _previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_session];
+    _previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
 }
 
 - (void) startRecording {
-
     self.locationManager = [[CLLocationManager alloc] init];
     self.locationManager.delegate = self;
     [self.locationManager startUpdatingLocation];
@@ -257,93 +246,6 @@
     
 }
 
-- (void)checkLocationPermission{
-    if ([CLLocationManager locationServicesEnabled]) {
-        switch ([CLLocationManager authorizationStatus]) {
-            case kCLAuthorizationStatusAuthorized:
-            {
-                UIAlertView *alert= [[UIAlertView alloc]initWithTitle:@"OK" message:@"Can use" delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles: nil];
-                [alert show];
-                alert= nil;
-            }
-
-                break;
-            case kCLAuthorizationStatusDenied:
-            {
-                UIAlertView *alert= [[UIAlertView alloc]initWithTitle:@"Error" message:@"App level settings has been denied" delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles: nil];
-                [alert show];
-                alert= nil;
-            }
-                break;
-            case kCLAuthorizationStatusNotDetermined:
-            {
-                UIAlertView *alert= [[UIAlertView alloc]initWithTitle:@"Error" message:@"The user is yet to provide the permission" delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles: nil];
-                [alert show];
-                alert= nil;
-            }
-                break;
-            case kCLAuthorizationStatusRestricted:
-            {
-                UIAlertView *alert= [[UIAlertView alloc]initWithTitle:@"Error" message:@"The app is recstricted from using location services." delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles: nil];
-                [alert show];
-                alert= nil;
-            }
-                break;
-
-            default:
-                break;
-        }
-    }
-    else{
-        UIAlertView *alert= [[UIAlertView alloc]initWithTitle:@"Error" message:@"The location services seems to be disabled from the settings." delegate:nil cancelButtonTitle:@"Ok" otherButtonTitles: nil];
-        [alert show];
-        alert= nil;
-    }
-}
-
-
-- (void) startRecordingWithParam:(NSDictionary*)parameters{
-    self.locationManager = [[CLLocationManager alloc] init];
-    self.locationManager.delegate = self;
-    if ([self.locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
-        [self.locationManager requestWhenInUseAuthorization];
-    }
-
-    [self.locationManager startUpdatingLocation];
-      [[KFAPIClient sharedClient] startStreamWithParameters:parameters callbackBlock:^(KFStream *endpointResponse, NSError *error) {
-        if (error) {
-            if (self.delegate && [self.delegate respondsToSelector:@selector(recorderDidStartRecording:error:)]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self.delegate recorderDidStartRecording:self error:error];
-                });
-            }
-            return;
-        }
-        self.stream = endpointResponse;
-        [self setStreamStartLocation];
-        if ([endpointResponse isKindOfClass:[KFS3Stream class]]) {
-            KFS3Stream *s3Endpoint = (KFS3Stream*)endpointResponse;
-            s3Endpoint.streamState = KFStreamStateStreaming;
-            [self setupHLSWriterWithEndpoint:s3Endpoint];
-
-            [[KFHLSMonitor sharedMonitor] startMonitoringFolderPath:_hlsWriter.directoryPath endpoint:s3Endpoint delegate:self];
-
-            NSError *error = nil;
-            [_hlsWriter prepareForWriting:&error];
-            if (error) {
-                DDLogError(@"Error preparing for writing: %@", error);
-            }
-            self.isRecording = YES;
-            if (self.delegate && [self.delegate respondsToSelector:@selector(recorderDidStartRecording:error:)]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self.delegate recorderDidStartRecording:self error:nil];
-                });
-            }
-        }
-    }];
-}
-
-
 - (void) reverseGeocodeStream:(KFStream*)stream {
     CLLocation *location = nil;
     CLLocation *endLocation = stream.endLocation;
@@ -370,7 +272,6 @@
         stream.city = placemark.locality;
         stream.state = placemark.administrativeArea;
         stream.country = placemark.country;
-        [self.delegate updateLocation:self];
         [[KFAPIClient sharedClient] updateMetadataForStream:stream callbackBlock:^(KFStream *updatedStream, NSError *error) {
             if (error) {
                 DDLogError(@"Error updating stream geocoder info: %@", error);
@@ -415,124 +316,12 @@
     });
 }
 
-
-- (AVCaptureDevice *)deviceWithMediaType:(NSString *)mediaType preferringPosition:(AVCaptureDevicePosition)position
-{
-    NSArray *devices = [AVCaptureDevice devicesWithMediaType:mediaType];
-    AVCaptureDevice *captureDevice = [devices firstObject];
-    
-    for (AVCaptureDevice *device in devices)
-    {
-        if ([device position] == position)
-        {
-            captureDevice = device;
-            break;
-        }
-    }
-    
-    return captureDevice;
-}
-
-- (void)setFlashMode:(AVCaptureFlashMode)flashMode forDevice:(AVCaptureDevice *)device
-{
-    if ([device hasFlash] && [device isFlashModeSupported:flashMode])
-    {
-        NSError *error = nil;
-        if ([device lockForConfiguration:&error])
-        {
-            [device setFlashMode:flashMode];
-            [device unlockForConfiguration];
-        }
-        else
-        {
-            NSLog(@"%@", error);
-        }
-    }
-}
-
-
-
-
-
-- (void)switchCameraWithButton:(UIButton *)btn
-{
-    
-    [btn setEnabled:false];
-    
-    dispatch_async([self videoQueue], ^{
-        AVCaptureDevice *currentVideoDevice = [[self videoInput] device];
-        AVCaptureDevicePosition preferredPosition = AVCaptureDevicePositionUnspecified;
-        AVCaptureDevicePosition currentPosition = [currentVideoDevice position];
-        
-        switch (currentPosition)
-        {
-            case AVCaptureDevicePositionUnspecified:
-                preferredPosition = AVCaptureDevicePositionBack;
-                break;
-            case AVCaptureDevicePositionBack:
-                preferredPosition = AVCaptureDevicePositionFront;
-                break;
-            case AVCaptureDevicePositionFront:
-                preferredPosition = AVCaptureDevicePositionBack;
-                break;
-        }
-        
-        AVCaptureDevice *videoDevice = [self deviceWithMediaType:AVMediaTypeVideo preferringPosition:preferredPosition];
-        AVCaptureDeviceInput *videoDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:videoDevice error:nil];
-        
-        [[self session] beginConfiguration];
-        
-        [[self session] removeInput:[self videoInput]];
-        if ([[self session] canAddInput:videoDeviceInput])
-        {
-            [[NSNotificationCenter defaultCenter] removeObserver:self name:AVCaptureDeviceSubjectAreaDidChangeNotification object:currentVideoDevice];
-            
-            [self setFlashMode:AVCaptureFlashModeAuto forDevice:videoDevice];
-            
-            [[self session] addInput:videoDeviceInput];
-            [self setVideoInput:videoDeviceInput];
-        }
-        else
-        {
-            [[self session] addInput:[self videoInput]];
-        }
-        
-        [[self session] commitConfiguration];
-        
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [btn setEnabled:true];
-        });
-        
-    });
-    
-}
-
-
-// Find a camera with the specificed AVCaptureDevicePosition, returning nil if one is not found
-- (AVCaptureDevice *) cameraWithPosition:(AVCaptureDevicePosition) position
-{
-    NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-    for (AVCaptureDevice *device in devices) {
-        if ([device position] == position) {
-            return device;
-        }
-    }
-    return nil;
-}
-
-// Find a front facing camera, returning nil if one is not found
-- (AVCaptureDevice *) frontFacingCamera
-{
-    return [self cameraWithPosition:AVCaptureDevicePositionFront];
-}
-
-
 - (void) uploader:(KFHLSUploader *)uploader didUploadSegmentAtURL:(NSURL *)segmentURL uploadSpeed:(double)uploadSpeed numberOfQueuedSegments:(NSUInteger)numberOfQueuedSegments {
     DDLogInfo(@"Uploaded segment %@ @ %f KB/s, numberOfQueuedSegments %d", segmentURL, uploadSpeed, numberOfQueuedSegments);
     if ([Kickflip useAdaptiveBitrate]) {
         double currentUploadBitrate = uploadSpeed * 8 * 1024; // bps
         double maxBitrate = [Kickflip maxBitrate];
-        
+
         double newBitrate = currentUploadBitrate * 0.5;
         if (newBitrate > maxBitrate) {
             newBitrate = maxBitrate;
@@ -566,7 +355,6 @@
     if (self.stream && !self.stream.startLocation) {
         self.stream.startLocation = self.lastLocation;
         [[KFAPIClient sharedClient] updateMetadataForStream:self.stream callbackBlock:^(KFStream *updatedStream, NSError *error) {
-            
             if (error) {
                 DDLogError(@"Error updating stream startLocation: %@", error);
             }

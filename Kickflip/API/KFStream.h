@@ -104,12 +104,6 @@ extern NSString * const KFStreamTypeKey;
  */
 @property (nonatomic) KFStreamState streamState;
 
-
-@property (nonatomic) BOOL deleted;
-
-
-@property (nonatomic) NSString* extraInfos;
-
 /**
  *  Whether or not a recording is currently being broadcast.
  *  Currently this is calculated by the startDate and finishDate info.
