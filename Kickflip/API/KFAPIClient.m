@@ -14,8 +14,8 @@
 #import "Kickflip.h"
 
 static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
-@implementation KFAPIClient
 
+@implementation KFAPIClient
 
 + (KFAPIClient*) sharedClient {
     static KFAPIClient *_sharedClient = nil;
@@ -47,7 +47,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
     NSAssert(apiKey != nil && apiSecret != nil, @"Missing API key and secret. Call [Kickflip setupWithAPIKey:secret:] with your credentials obtained from kickflip.io");
 
     AFOAuth2Manager *oauthClient = [[AFOAuth2Manager alloc] initWithBaseURL:url clientID:apiKey secret:apiSecret];
-
+    
     AFOAuthCredential *credential = [AFOAuthCredential retrieveCredentialWithIdentifier:apiKey];
     if (credential && !credential.isExpired) {
         [self setAuthorizationHeaderWithCredential:credential];
@@ -121,7 +121,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
                 return;
             }
             error = nil;
-
+            
             KFUser *user = [MTLJSONAdapter modelOfClass:[KFUser class] fromJSONDictionary:responseDictionary error:&error];
             if (error) {
                 if (callbackBlock) {
@@ -153,7 +153,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
                 return;
             }
             error = nil;
-
+            
             KFUser *user = [MTLJSONAdapter modelOfClass:[KFUser class] fromJSONDictionary:responseDictionary error:&error];
             if (error) {
                 if (callbackBlock) {
@@ -203,7 +203,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
                 return;
             }
             error = nil;
-
+            
             KFUser *user = [MTLJSONAdapter modelOfClass:[KFUser class] fromJSONDictionary:responseDictionary error:&error];
             if (error) {
                 if (callbackBlock) {
@@ -238,7 +238,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
                 return;
             }
             error = nil;
-
+            
             KFUser *user = [MTLJSONAdapter modelOfClass:[KFUser class] fromJSONDictionary:responseDictionary error:&error];
             if (error) {
                 if (callbackBlock) {
@@ -261,8 +261,6 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
 }
 
 - (void) parsePostPath:(NSString*)path parameters:(NSDictionary*)parameters callbackBlock:(void (^)(NSDictionary *responseDictionary, NSError *error))callbackBlock {
-
-
     [self POST:path parameters:parameters success:^(NSURLSessionDataTask *task, id responseObject) {
         if (responseObject && [responseObject isKindOfClass:[NSDictionary class]]) {
             NSDictionary *responseDictionary = (NSDictionary*)responseObject;
@@ -292,7 +290,6 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
 
 - (void) parsePostPath:(NSString*)path activeUser:(KFUser*)activeUser parameters:(NSDictionary*)parameters callbackBlock:(void (^)(NSDictionary *responseDictionary, NSError *error))callbackBlock {
     NSMutableDictionary *fullParameters = [NSMutableDictionary dictionaryWithDictionary:parameters];
-
     if (!activeUser) {
         if (callbackBlock) {
             callbackBlock(nil, [NSError errorWithDomain:kKFAPIClientErrorDomain code:105 userInfo:@{NSLocalizedDescriptionKey: @"Fetch an active user first"}]);
@@ -303,11 +300,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
     [self parsePostPath:path parameters:fullParameters callbackBlock:callbackBlock];
 }
 
-
-
 - (void) betterPostPath:(NSString*)path parameters:(NSDictionary*)parameters callbackBlock:(void (^)(NSDictionary *responseDictionary, NSError *error))callbackBlock {
-
-
     [self checkOAuthCredentialsWithCallback:^(BOOL success, NSError *error) {
         if (!success) {
             if (callbackBlock) {
@@ -329,27 +322,6 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
     }];
 }
 
-
-- (void) betterPostPath:(NSString*)path parameters:(NSDictionary*)parameters  user:(KFUser*)user callbackBlock:(void (^)(NSDictionary *responseDictionary, NSError *error))callbackBlock {
-
-
-    [self checkOAuthCredentialsWithCallback:^(BOOL success, NSError *error) {
-        if (!success) {
-            if (callbackBlock) {
-                callbackBlock(nil, error);
-            }
-            return;
-        }
-
-        if(!user){
-            [self parsePostPath:path parameters:parameters callbackBlock:callbackBlock];
-        }
-        else{
-            [self parsePostPath:path activeUser:user parameters:parameters callbackBlock:callbackBlock];
-        }
-    }];
-}
-
 - (void) stopStream:(KFStream *)stream callbackBlock:(void (^)(BOOL, NSError *))callbackBlock {
     NSAssert(stream != nil, @"stream cannot be nil!");
     [self betterPostPath:@"stream/stop" parameters:@{@"stream_id": stream.streamID} callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
@@ -364,48 +336,9 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
     }];
 }
 
-
--(NSString*) bv_jsonStringWithPrettyPrint:(BOOL) prettyPrint {
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self
-                                                       options:(NSJSONWritingOptions)    (prettyPrint ? NSJSONWritingPrettyPrinted : 0)
-                                                         error:&error];
-
-    if (! jsonData) {
-        NSLog(@"bv_jsonStringWithPrettyPrint: error: %@", error.localizedDescription);
-        return @"{}";
-    } else {
-        return [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-    }
-}
-
--(NSString *)JSONFromDic:(NSDictionary *)dic{
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dic
-                                                       options:0
-                                                         error:&error];
-
-    if (!jsonData) {
-
-    } else {
-
-        NSString *JSONString = [[NSString alloc] initWithBytes:[jsonData bytes] length:[jsonData length] encoding:NSUTF8StringEncoding];
-        return JSONString;
-    }
-    return nil;
-}
-
-
-
-
 - (void) startStreamWithParameters:(NSDictionary*)parameters callbackBlock:(void (^)(KFStream *, NSError *))endpointCallback {
     NSAssert(endpointCallback != nil, @"endpointCallback should not be nil!");
-
-    NSString* extraInfo = [self JSONFromDic:parameters];
-
-
-
-    [self betterPostPath:@"stream/start" parameters:@{@"extra_info": extraInfo ,@"uuid":parameters[@"uuid"]} user:nil callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
+    [self betterPostPath:@"stream/start" parameters:nil callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
         if (error) {
             endpointCallback(nil, error);
             return;
@@ -523,7 +456,7 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
         [parameters setObject:keyword forKey:@"keyword"];
     }
     [self setPaginationForParameters:parameters pageNumber:pageNumber itemsPerPage:itemsPerPage];
-
+    
     [self betterPostPath:@"search" parameters:parameters callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
         if (error) {
             callbackBlock(nil, nil, error);
@@ -535,7 +468,6 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
             return;
         }
         NSArray *streamDictionaries = [responseDictionary objectForKey:@"streams"];
-
         [self serializeObjects:streamDictionaries class:[KFStream class] callbackBlock:^(NSArray *objects, NSError *error) {
             if (error) {
                 callbackBlock(nil, nil, error);
@@ -571,9 +503,9 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
 - (void) updateMetadataForStream:(KFStream *)stream callbackBlock:(void (^)(KFStream* updatedStream, NSError *))callbackBlock {
     NSDictionary *parameters = [MTLJSONAdapter JSONDictionaryFromModel:stream];
     /*
-     NSString *jsonString = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parameters options:NSJSONWritingPrettyPrinted error:nil] encoding:NSUTF8StringEncoding];
-     DDLogInfo(@"updateMetadata outgoing jsonString: %@", jsonString);
-     */
+    NSString *jsonString = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parameters options:NSJSONWritingPrettyPrinted error:nil] encoding:NSUTF8StringEncoding];
+    DDLogInfo(@"updateMetadata outgoing jsonString: %@", jsonString);
+    */
     [self betterPostPath:@"stream/change" parameters:parameters callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
         if (!callbackBlock) {
             return;
@@ -590,70 +522,5 @@ static NSString* const kKFAPIClientErrorDomain = @"kKFAPIClientErrorDomain";
         callbackBlock(updatedStream, nil);
     }];
 }
-
-- (void) deleteStream:(NSString *)streamId callbackBlock:(void (^)(KFStream* updatedStream, NSError *))callbackBlock {
-    KFUser *user = [KFUser activeUser];
-    NSDictionary *parameters = @{@"deleted" : @"true" ,@"uuid" : user.uuid , @"stream_id": streamId};
-    [self betterPostPath:@"stream/change" parameters:parameters callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
-        if (!callbackBlock) {
-            return;
-        }
-        if (error) {
-            callbackBlock(nil, error);
-            return;
-        }
-        KFStream *updatedStream = [MTLJSONAdapter modelOfClass:[KFStream class] fromJSONDictionary:responseDictionary error:&error];
-        if (error) {
-            callbackBlock(nil, error);
-            return;
-        }
-        callbackBlock(updatedStream, nil);
-    }];
-
-}
-
-- (void)requestStreamInfo:(NSString *)streamId callbackBlock:(void (^)(KFStream* streamInfo, NSError *))callbackBlock {
-    NSDictionary *parameters = @{@"stream_id": streamId};
-    [self betterPostPath:@"stream/info" parameters:parameters callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
-        if (!callbackBlock) {
-            return;
-        }
-        if (error) {
-            callbackBlock(nil, error);
-            return;
-        }
-        KFStream *streamInfo = [MTLJSONAdapter modelOfClass:[KFStream class] fromJSONDictionary:responseDictionary error:&error];
-        if (error) {
-            callbackBlock(nil, error);
-            return;
-        }
-        callbackBlock(streamInfo, nil);
-    }];
-
-}
-
-- (void)updateExtraInfoStream:(NSDictionary *)extraInfo streamID:(NSString*)streamID callbackBlock:(void (^)(KFStream* updatedStream, NSError *))callbackBlock {
-
-    NSString* extraInfoStr = [self JSONFromDic:extraInfo];
-
-    [self betterPostPath:@"stream/change" parameters:@{@"extra_info":extraInfoStr , @"stream_id":streamID , @"uuid":extraInfo[@"uuid"]} user:nil callbackBlock:^(NSDictionary *responseDictionary, NSError *error) {
-        if (!callbackBlock) {
-            return;
-        }
-        if (error) {
-            callbackBlock(nil, error);
-            return;
-        }
-        KFStream *updatedStream = [MTLJSONAdapter modelOfClass:[KFStream class] fromJSONDictionary:responseDictionary error:&error];
-        if (error) {
-            callbackBlock(nil, error);
-            return;
-        }
-        callbackBlock(updatedStream, nil);
-    }];
-}
-
-
-
 
 @end
