@@ -17,8 +17,9 @@ Pod::Spec.new do |s|
 
   s.libraries = 'c++'
 
+  s.dependency 'Bolts'
   s.dependency 'AFNetworking', '~> 2.2'
-  s.dependency 'AWSS3', '~> 2.1'
+  s.dependency 'AWSS3', '2.1.1'
   s.dependency 'AFOAuth2Manager', '~> 2.0'
   s.dependency 'CocoaLumberjack', '~> 1.0'
   s.dependency 'SSKeychain', '~> 1.2'
