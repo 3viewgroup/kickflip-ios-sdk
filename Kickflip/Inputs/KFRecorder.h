@@ -19,6 +19,7 @@
 - (void) recorderDidStartRecording:(KFRecorder*)recorder error:(NSError*)error;
 - (void) recorderDidFinishRecording:(KFRecorder*)recorder error:(NSError*)error;
 - (void) recorder:(KFRecorder*)recorder streamReadyAtURL:(NSURL*)url;
+- (void) updateLocation:(KFRecorder *)recorder;
 @end
 
 /**
@@ -50,6 +51,8 @@
 @property (nonatomic, weak) id<KFRecorderDelegate> delegate;
 
 - (void) startRecording;
+- (void) startRecordingWithParam:(NSDictionary*)parameters;
 - (void) stopRecording;
+- (void) switchCameraWithButton:(UIButton *)btn;
 
 @end
