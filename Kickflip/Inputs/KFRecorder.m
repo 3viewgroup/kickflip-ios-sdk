@@ -5,7 +5,7 @@
 //  Created by Christopher Ballinger on 1/16/14.
 //  Copyright (c) 2014 Christopher Ballinger. All rights reserved.
 //
-
+#define kSCRecorderRecordSessionQueueKey "SCRecorderRecordSessionQueue"
 #import "KFRecorder.h"
 #import "KFAACEncoder.h"
 #import "KFH264Encoder.h"
@@ -26,8 +26,13 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 @property (nonatomic) BOOL isUsingFrontFacingCamera;
 @property (nonatomic) AVCaptureDeviceInput* videoInput;
-
+@property (nonatomic) AVCaptureDevicePosition device;
+@property (readonly, nonatomic) dispatch_queue_t __nonnull sessionQueue;
+@property BOOL isHasFlash;
 @end
+
+int _beginSessionConfigurationCount;
+
 
 @implementation KFRecorder
 
@@ -37,6 +42,7 @@
         _minBitrate = 300 * 1000;
         [self setupSession];
         [self setupEncoders];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(sessionInterrupted:) name:AVAudioSessionInterruptionNotification object:nil];
         
     }
     return self;
@@ -106,15 +112,41 @@
 }
 
 - (void) setupVideoCapture {
+    [self setupVideoCaptureWithCapturePosition:AVCaptureDevicePositionFront];
+}
+
+- (AVCaptureConnection*)currentVideoConnection {
+    for (AVCaptureConnection * connection in _videoOutput.connections) {
+        for (AVCaptureInputPort * port in connection.inputPorts) {
+            if ([port.mediaType isEqual:AVMediaTypeVideo]) {
+                return connection;
+            }
+        }
+    }
+    
+    return nil;
+}
+
+- (void) setupVideoCaptureWithCapturePosition:(AVCaptureDevicePosition)position {
     NSError *error = nil;
-    AVCaptureDevice* videoDevice = [self deviceWithMediaType:AVMediaTypeVideo preferringPosition:AVCaptureDevicePositionFront];
+    AVCaptureDevice* videoDevice = [self deviceWithMediaType:AVMediaTypeVideo preferringPosition:position];
+    
+    _device = AVCaptureDevicePositionFront;
+    if(_videoInput){
+        [_session removeInput:_videoInput];
+    }
+    
     _videoInput = [AVCaptureDeviceInput deviceInputWithDevice:videoDevice error:&error];
     if (error) {
         NSLog(@"Error getting video input device: %@", error.description);
     }
+    
     if ([_session canAddInput:_videoInput]) {
         [_session addInput:_videoInput];
     }
+    
+    NSLog(@"%@",_session.inputs);
+    
     
     // create an output for YUV output with self as delegate
     _videoQueue = dispatch_queue_create("Video Capture Queue", DISPATCH_QUEUE_SERIAL);
@@ -127,8 +159,14 @@
     if ([_session canAddOutput:_videoOutput]) {
         [_session addOutput:_videoOutput];
     }
+    
+    NSLog(@"%@",_videoOutput);
     _videoConnection = [_videoOutput connectionWithMediaType:AVMediaTypeVideo];
     [_videoConnection setVideoOrientation:AVCaptureVideoOrientationPortrait];
+    NSLog(@"%@",[self currentVideoConnection]);
+    
+    
+    
     
 }
 
@@ -149,18 +187,30 @@
         return;
     }
     // pass frame to encoders
-    if (connection == _videoConnection) {
-        if (!_hasScreenshot) {
-            UIImage *image = [self imageFromSampleBuffer:sampleBuffer];
-            NSString *path = [self.hlsWriter.directoryPath stringByAppendingPathComponent:@"thumb.jpg"];
-            NSData *imageData = UIImageJPEGRepresentation(image, 0.7);
-            [imageData writeToFile:path atomically:NO];
-            _hasScreenshot = YES;
-        }
-        [_h264Encoder encodeSampleBuffer:sampleBuffer];
-    } else if (connection == _audioConnection) {
+    
+    
+    if (connection == _audioConnection) {
         [_aacEncoder encodeSampleBuffer:sampleBuffer];
+        return;
     }
+    else{
+        _videoConnection = connection;
+        if(_videoConnection.videoOrientation != AVCaptureVideoOrientationPortrait){
+            _videoConnection.videoOrientation = AVCaptureVideoOrientationPortrait;
+        }
+        
+    }
+    
+    if (!_hasScreenshot) {
+        UIImage *image = [self imageFromSampleBuffer:sampleBuffer];
+        NSString *path = [self.hlsWriter.directoryPath stringByAppendingPathComponent:@"thumb.jpg"];
+        NSData *imageData = UIImageJPEGRepresentation(image, 0.7);
+        [imageData writeToFile:path atomically:NO];
+        _hasScreenshot = YES;
+    }
+    [_h264Encoder encodeSampleBuffer:sampleBuffer];
+    
+    
 }
 
 // Create a UIImage from sample buffer data
@@ -204,6 +254,7 @@
     return (image);
 }
 
+
 - (void) setupSession {
     _session = [[AVCaptureSession alloc] init];
     [self setupVideoCapture];
@@ -219,7 +270,7 @@
 }
 
 - (void) startRecording {
-
+    
     self.locationManager = [[CLLocationManager alloc] init];
     self.locationManager.delegate = self;
     [self.locationManager startUpdatingLocation];
@@ -257,6 +308,11 @@
     
 }
 
+
+- (void)pause{
+    
+}
+
 - (void)checkLocationPermission{
     if ([CLLocationManager locationServicesEnabled]) {
         switch ([CLLocationManager authorizationStatus]) {
@@ -266,7 +322,7 @@
                 [alert show];
                 alert= nil;
             }
-
+                
                 break;
             case kCLAuthorizationStatusDenied:
             {
@@ -289,7 +345,7 @@
                 alert= nil;
             }
                 break;
-
+                
             default:
                 break;
         }
@@ -308,9 +364,9 @@
     if ([self.locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
         [self.locationManager requestWhenInUseAuthorization];
     }
-
+    
     [self.locationManager startUpdatingLocation];
-      [[KFAPIClient sharedClient] startStreamWithParameters:parameters callbackBlock:^(KFStream *endpointResponse, NSError *error) {
+    [[KFAPIClient sharedClient] startStreamWithParameters:parameters callbackBlock:^(KFStream *endpointResponse, NSError *error) {
         if (error) {
             if (self.delegate && [self.delegate respondsToSelector:@selector(recorderDidStartRecording:error:)]) {
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -325,9 +381,9 @@
             KFS3Stream *s3Endpoint = (KFS3Stream*)endpointResponse;
             s3Endpoint.streamState = KFStreamStateStreaming;
             [self setupHLSWriterWithEndpoint:s3Endpoint];
-
+            
             [[KFHLSMonitor sharedMonitor] startMonitoringFolderPath:_hlsWriter.directoryPath endpoint:s3Endpoint delegate:self];
-
+            
             NSError *error = nil;
             [_hlsWriter prepareForWriting:&error];
             if (error) {
@@ -415,6 +471,36 @@
     });
 }
 
+-(void)stopSession{
+    [_session stopRunning];
+    //    self.isRecording = NO;
+    //    NSError *error = nil;
+    //    [_hlsWriter finishWriting:&error];
+}
+
+-(void)startSession{
+    [self setupVideoCaptureWithCapturePosition:_device];
+    [self setupAudioCapture];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [_session startRunning];
+        //        KFStream * endpointResponse = self.stream;
+        //        if ([endpointResponse isKindOfClass:[KFS3Stream class]]) {
+        //            KFS3Stream *s3Endpoint = (KFS3Stream*)endpointResponse;
+        //            s3Endpoint.streamState = KFStreamStateStreaming;
+        //            [self setupHLSWriterWithEndpoint:s3Endpoint];
+        //
+        //            [[KFHLSMonitor sharedMonitor] startMonitoringFolderPath:_hlsWriter.directoryPath endpoint:s3Endpoint delegate:self];
+        //
+        //            NSError *error = nil;
+        //            [_hlsWriter prepareForWriting:&error];
+        //            if (error) {
+        //                DDLogError(@"Error preparing for writing: %@", error);
+        //            }
+        //            self.isRecording = YES;
+        //        }
+    });
+}
+
 
 - (AVCaptureDevice *)deviceWithMediaType:(NSString *)mediaType preferringPosition:(AVCaptureDevicePosition)position
 {
@@ -433,79 +519,104 @@
     return captureDevice;
 }
 
-- (void)setFlashMode:(AVCaptureFlashMode)flashMode forDevice:(AVCaptureDevice *)device
-{
-    if ([device hasFlash] && [device isFlashModeSupported:flashMode])
-    {
-        NSError *error = nil;
-        if ([device lockForConfiguration:&error])
-        {
-            [device setFlashMode:flashMode];
-            [device unlockForConfiguration];
+
+
+//
+
+
+- (void)setTorchMode:(UIButton *)btn{
+    
+    
+    AVCaptureTorchMode torchMode = [self videoDevices].torchMode;
+    AVCaptureDevice *device  = [self videoDevices];
+    NSError *error = nil;
+    if ([device lockForConfiguration:&error]){
+        if (torchMode == AVCaptureTorchModeOn) {
+            
+            [device setTorchMode:AVCaptureTorchModeOff];
+            
         }
-        else
-        {
-            NSLog(@"%@", error);
+        else{
+            
+            [device setTorchMode:AVCaptureTorchModeOn];
+            
         }
+        [device unlockForConfiguration];
     }
 }
 
 
+- (AVCaptureDeviceInput*)currentDeviceInputForMediaType:(NSString*)mediaType {
+    for (AVCaptureDeviceInput* deviceInput in [self session].inputs) {
+        if ([deviceInput.device hasMediaType:mediaType]) {
+            return deviceInput;
+        }
+    }
+    
+    return nil;
+}
+
+
+- (AVCaptureDevice *)videoDeviceForPosition:(AVCaptureDevicePosition)position {
+    NSArray *videoDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+    
+    for (AVCaptureDevice *device in videoDevices) {
+        if (device.position == (AVCaptureDevicePosition)position) {
+            return device;
+        }
+    }
+    
+    return nil;
+}
+
+- (AVCaptureDevice*)videoDevices {
+    
+    
+    return [self videoDeviceForPosition:_device];
+}
 
 
 
-- (void)switchCameraWithButton:(UIButton *)btn
+- (void)reconfigureVideoInput:(BOOL)shouldConfigureVideo audioInput:(BOOL)shouldConfigureAudio {
+}
+
+
+- (BOOL)switchCameraWithButton:(UIButton *)btn
 {
+    //    [self stopSession];
+    switch (_device)
+    {
+        case AVCaptureDevicePositionUnspecified:
+            _device = AVCaptureDevicePositionBack;
+            _isHasFlash = true;
+            break;
+        case AVCaptureDevicePositionBack:
+            _device = AVCaptureDevicePositionFront;
+            _isHasFlash = false;
+            break;
+        case AVCaptureDevicePositionFront:
+            _device = AVCaptureDevicePositionBack;
+            _isHasFlash = true;
+            break;
+    }
     
-    [btn setEnabled:false];
     
-    dispatch_async([self videoQueue], ^{
-        AVCaptureDevice *currentVideoDevice = [[self videoInput] device];
-        AVCaptureDevicePosition preferredPosition = AVCaptureDevicePositionUnspecified;
-        AVCaptureDevicePosition currentPosition = [currentVideoDevice position];
-        
-        switch (currentPosition)
-        {
-            case AVCaptureDevicePositionUnspecified:
-                preferredPosition = AVCaptureDevicePositionBack;
-                break;
-            case AVCaptureDevicePositionBack:
-                preferredPosition = AVCaptureDevicePositionFront;
-                break;
-            case AVCaptureDevicePositionFront:
-                preferredPosition = AVCaptureDevicePositionBack;
-                break;
-        }
-        
-        AVCaptureDevice *videoDevice = [self deviceWithMediaType:AVMediaTypeVideo preferringPosition:preferredPosition];
-        AVCaptureDeviceInput *videoDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:videoDevice error:nil];
-        
-        [[self session] beginConfiguration];
-        
-        [[self session] removeInput:[self videoInput]];
-        if ([[self session] canAddInput:videoDeviceInput])
-        {
-            [[NSNotificationCenter defaultCenter] removeObserver:self name:AVCaptureDeviceSubjectAreaDidChangeNotification object:currentVideoDevice];
-            
-            [self setFlashMode:AVCaptureFlashModeAuto forDevice:videoDevice];
-            
-            [[self session] addInput:videoDeviceInput];
-            [self setVideoInput:videoDeviceInput];
-        }
-        else
-        {
-            [[self session] addInput:[self videoInput]];
-        }
-        
-        [[self session] commitConfiguration];
-        
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [btn setEnabled:true];
-        });
-        
-    });
+    [self beginConfiguration];
+    NSError *videoError = nil;
+    [self configureDevice:[self videoDevices] mediaType:AVMediaTypeVideo error:&videoError];
+    [self commitConfiguration];
+    
+    
+    //    [self startSession];
+    
+    
+    return _isHasFlash;
     
 }
+
+
+
+
 
 
 // Find a camera with the specificed AVCaptureDevicePosition, returning nil if one is not found
@@ -525,6 +636,31 @@
 {
     return [self cameraWithPosition:AVCaptureDevicePositionFront];
 }
+
+
+
+- (AVCaptureConnection *)_currentCaptureConnection
+{
+    AVCaptureConnection *videoConnection = nil;
+    
+    for (AVCaptureConnection *connection in self.videoOutput.connections) {
+        for (AVCaptureInputPort *port in [connection inputPorts]) {
+            if ([[port mediaType] isEqual:AVMediaTypeVideo]) {
+                videoConnection = connection;
+                break;
+            }
+        }
+        
+        if (videoConnection) {
+            break;
+        }
+    }
+    
+    return videoConnection;
+}
+
+
+
 
 
 - (void) uploader:(KFHLSUploader *)uploader didUploadSegmentAtURL:(NSURL *)segmentURL uploadSpeed:(double)uploadSpeed numberOfQueuedSegments:(NSUInteger)numberOfQueuedSegments {
@@ -574,5 +710,95 @@
         [self reverseGeocodeStream:self.stream];
     }
 }
+
+
+- (void)beginConfiguration {
+    if (_session != nil) {
+        _beginSessionConfigurationCount++;
+        if (_beginSessionConfigurationCount == 1) {
+            [_session beginConfiguration];
+        }
+    }
+}
+
+- (void)commitConfiguration {
+    if (_session != nil) {
+        _beginSessionConfigurationCount--;
+        if (_beginSessionConfigurationCount == 0) {
+            [_session commitConfiguration];
+        }
+    }
+}
+
+
+
+- (void)configureDevice:(AVCaptureDevice*)newDevice mediaType:(NSString*)mediaType error:(NSError**)error {
+    AVCaptureDeviceInput *currentInput = [self currentDeviceInputForMediaType:mediaType];
+    AVCaptureDevice *currentUsedDevice = currentInput.device;
+    
+    if (currentUsedDevice != newDevice) {
+        if ([mediaType isEqualToString:AVMediaTypeVideo]) {
+            NSError *error;
+            if ([newDevice lockForConfiguration:&error]) {
+                if (newDevice.isSmoothAutoFocusSupported) {
+                    newDevice.smoothAutoFocusEnabled = YES;
+                }
+                newDevice.subjectAreaChangeMonitoringEnabled = true;
+                
+                if (newDevice.isLowLightBoostSupported) {
+                    newDevice.automaticallyEnablesLowLightBoostWhenAvailable = YES;
+                }
+                [newDevice unlockForConfiguration];
+            } else {
+                NSLog(@"Failed to configure device: %@", error);
+            }
+            //            _videoInputAdded = NO;
+        } else {
+            //            _audioInputAdded = NO;
+        }
+        
+        AVCaptureDeviceInput *newInput = nil;
+        
+        if (newDevice != nil) {
+            newInput = [[AVCaptureDeviceInput alloc] initWithDevice:newDevice error:error];
+        }
+        
+        if (*error == nil) {
+            if (currentInput != nil) {
+                [_session removeInput:currentInput];
+                if ([currentInput.device hasMediaType:AVMediaTypeVideo]) {
+                    
+                }
+            }
+            
+            if (newInput != nil) {
+                if ([_session canAddInput:newInput]) {
+                    [_session addInput:newInput];
+                    if ([newInput.device hasMediaType:AVMediaTypeVideo]) {
+                        _videoConnection.videoOrientation = AVCaptureVideoOrientationPortrait;
+                        
+                        //                        AVCaptureConnection *videoConnection = [self videoConnection];
+                        //                        if ([_videoConnection isVideoStabilizationSupported]) {
+                        //                            if ([_videoConnection respondsToSelector:@selector(setPreferredVideoStabilizationMode:)]) {
+                        //                                _videoConnection.preferredVideoStabilizationMode = AVCaptureVideoStabilizationModeAuto;
+                        //                            } else {
+                        //#pragma clang diagnostic push
+                        //#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                        //                                _videoConnection.enablesVideoStabilizationWhenAvailable = YES;
+                        //#pragma clang diagnostic pop
+                        //                            }
+                        //                        }
+                    } else {
+                        //                        _audioInputAdded = YES;
+                    }
+                } else {
+                    //                    *error = [SCRecorder createError:@"Failed to add input to capture session"];
+                }
+            }
+        }
+    }
+    
+}
+
 
 @end

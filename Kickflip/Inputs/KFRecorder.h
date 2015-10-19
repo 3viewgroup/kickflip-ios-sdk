@@ -13,6 +13,7 @@
 #import "KFHLSUploader.h"
 #import <CoreLocation/CoreLocation.h>
 
+
 @class KFRecorder, KFHLSWriter, KFStream;
 
 @protocol KFRecorderDelegate <NSObject>
@@ -53,6 +54,7 @@
 - (void) startRecording;
 - (void) startRecordingWithParam:(NSDictionary*)parameters;
 - (void) stopRecording;
-- (void) switchCameraWithButton:(UIButton *)btn;
+- (BOOL) switchCameraWithButton:(UIButton *)btn;
+- (void) setTorchMode:(UIButton *)btn;
 
 @end
