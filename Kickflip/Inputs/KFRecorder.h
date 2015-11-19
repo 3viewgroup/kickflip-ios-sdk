@@ -56,5 +56,6 @@
 - (void) stopRecording;
 - (BOOL) switchCameraWithButton:(UIButton *)btn;
 - (void) setTorchMode:(UIButton *)btn;
+- (void) setupEncoders;
 
 @end
